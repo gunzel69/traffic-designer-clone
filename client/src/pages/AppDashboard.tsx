@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Plus,
@@ -11,35 +11,36 @@ import {
   Loader2,
   LogOut,
   Trash2,
-  LayoutDashboard,
 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AppDashboard() {
-  const { user, loading: authLoading, isAuthenticated, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
-  
-  // Demo Data
-  const [projects, setProjects] = useState([
-    {
-      id: 1,
-      name: "Swanston St Intersection Upgrade",
-      description: "Major intersection upgrade and resurfacing works.",
-      location: "Swanston St, Melbourne VIC",
-      status: "review",
-      updatedAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      name: "Collins St Tram Track Repair",
-      description: "Emergency repair of tram tracks near Elizabeth St.",
-      location: "Collins St, Melbourne VIC",
-      status: "approved",
-      updatedAt: new Date().toISOString()
+  const [projects, setProjects] = useState<any[]>([]);
+
+  // Load projects from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("tgs_projects");
+    if (saved) {
+      setProjects(JSON.parse(saved));
+    } else {
+      const initial = [
+        {
+          id: "swanston-123",
+          name: "Swanston St Intersection Upgrade",
+          description: "Major intersection upgrade and resurfacing works.",
+          location: "Swanston St, Melbourne VIC",
+          status: "review",
+          updatedAt: new Date().toISOString()
+        }
+      ];
+      setProjects(initial);
+      localStorage.setItem("tgs_projects", JSON.stringify(initial));
     }
-  ]);
+  }, []);
 
   const handleCreateProject = () => {
     if (!newProjectName.trim()) {
@@ -47,22 +48,26 @@ export default function AppDashboard() {
       return;
     }
     const newProject = {
-      id: Date.now(),
+      id: "proj-" + Date.now(),
       name: newProjectName,
-      description: "New traffic management project",
+      description: "Custom traffic management project",
       location: "Melbourne, VIC",
       status: "draft",
       updatedAt: new Date().toISOString()
     };
-    setProjects([newProject, ...projects]);
+    const updated = [newProject, ...projects];
+    setProjects(updated);
+    localStorage.setItem("tgs_projects", JSON.stringify(updated));
     setShowCreateDialog(false);
     setNewProjectName("");
-    toast.success("Project created (Demo Mode)");
+    toast.success("Project created!");
     setLocation(`/app/editor/${newProject.id}`);
   };
 
-  const handleDeleteProject = (id: number) => {
-    setProjects(projects.filter(p => p.id !== id));
+  const handleDeleteProject = (id: string) => {
+    const updated = projects.filter(p => p.id !== id);
+    setProjects(updated);
+    localStorage.setItem("tgs_projects", JSON.stringify(updated));
     toast.success("Project deleted");
   };
 
@@ -70,7 +75,6 @@ export default function AppDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b border-white/10 bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -91,7 +95,6 @@ export default function AppDashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -103,27 +106,27 @@ export default function AppDashboard() {
           </Button>
         </div>
 
-        {/* Create Dialog */}
         {showCreateDialog && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
             <div className="bg-card border border-white/10 rounded-xl p-6 w-full max-w-md shadow-2xl">
               <h2 className="text-lg font-bold text-white mb-4">Create New Project</h2>
               <input
                 type="text"
+                autoFocus
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
-                placeholder="Project Name"
-                className="w-full bg-background border border-white/10 rounded-lg px-3 py-2 text-white mb-6"
+                placeholder="e.g. Bourke St Lane Closure"
+                className="w-full bg-background border border-white/10 rounded-lg px-3 py-2 text-white mb-6 focus:border-orange-500 outline-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
               />
               <div className="flex justify-end gap-3">
                 <Button variant="ghost" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-                <Button onClick={handleCreateProject} className="bg-orange-500 text-white">Create</Button>
+                <Button onClick={handleCreateProject} className="bg-orange-500 text-white">Create Project</Button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Projects Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((project) => (
             <div
@@ -137,7 +140,7 @@ export default function AppDashboard() {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}
-                  className="p-1 rounded hover:bg-red-500/10"
+                  className="p-1 rounded hover:bg-red-500/10 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-red-400" />
                 </button>
@@ -148,7 +151,7 @@ export default function AppDashboard() {
                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {project.location}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(project.updatedAt).toLocaleDateString()}</span>
               </div>
-              <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+              <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           ))}
         </div>
