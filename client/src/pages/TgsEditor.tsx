@@ -9,21 +9,16 @@ import {
   Download,
   Loader2,
   Layers,
-  Camera,
-  Upload,
-  Undo2,
-  Redo2,
   MapPin,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
   MessageSquare,
-  Train,
-  Footprints,
   Trash2,
+  Search,
+  Menu,
+  X,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AIChatBox, type Message } from "@/components/AIChatBox";
+import { AIChatBox } from "@/components/AIChatBox";
 
 declare global {
   interface Window {
@@ -48,7 +43,7 @@ const SIGN_TYPES = [
 
 export default function TgsEditor() {
   const { planId } = useParams<{ planId: string }>();
-  const { user, loading: authLoading } = useAuth();
+  const { loading: authLoading } = useAuth();
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -56,19 +51,22 @@ export default function TgsEditor() {
   const [generating, setGenerating] = useState(false);
   const [checking, setChecking] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [showPanel, setShowPanel] = useState<"settings" | "compliance" | "ai">("settings");
   
   const [projectName, setProjectName] = useState("Loading Project...");
   const [markers, setMarkers] = useState<any[]>([]);
   const [selectedSign, setSelectedSign] = useState(SIGN_TYPES[0]);
   const selectedSignRef = useRef(SIGN_TYPES[0]);
+  
+  // Mobile UI State
+  const [showPalette, setShowPalette] = useState(true);
+  const [showRightPanel, setShowRightPanel] = useState(false);
+  const [address, setAddress] = useState("");
+  const [searching, setSearching] = useState(false);
 
-  // Keep ref in sync with state for map click handler
   useEffect(() => {
     selectedSignRef.current = selectedSign;
   }, [selectedSign]);
 
-  // Load project name and markers
   useEffect(() => {
     const saved = localStorage.getItem("tgs_projects");
     if (saved) {
@@ -77,38 +75,26 @@ export default function TgsEditor() {
       if (project) setProjectName(project.name);
     }
     const savedMarkers = localStorage.getItem(`markers_${planId}`);
-    if (savedMarkers) {
-      setMarkers(JSON.parse(savedMarkers));
-    }
+    if (savedMarkers) setMarkers(JSON.parse(savedMarkers));
+    
+    // Auto-hide palette on mobile
+    if (window.innerWidth < 768) setShowPalette(false);
   }, [planId]);
 
   const renderMarkers = useCallback((markersToRender: any[]) => {
     const L = window.L;
     const map = mapInstanceRef.current;
     if (!L || !map) return;
-
-    // Clear existing markers
-    map.eachLayer((layer: any) => {
-      if (layer instanceof L.CircleMarker) {
-        map.removeLayer(layer);
-      }
-    });
-
+    map.eachLayer((layer: any) => { if (layer instanceof L.CircleMarker) map.removeLayer(layer); });
     markersToRender.forEach(m => {
       const marker = L.circleMarker([m.lat, m.lng], {
-        radius: 10,
+        radius: 12, // Larger for touch
         fillColor: m.color,
         color: "#fff",
-        weight: 2,
+        weight: 3,
         fillOpacity: 0.9,
       }).addTo(map);
-      
-      marker.bindPopup(`
-        <div class="text-black p-1">
-          <p class="font-bold text-sm mb-1">${m.label}</p>
-          <button onclick="window.deleteMarker(${m.id})" class="text-[10px] text-red-500 font-bold hover:underline">Delete Sign</button>
-        </div>
-      `);
+      marker.bindPopup(`<div class="text-black p-2"><p class="font-bold text-base mb-2">${m.label}</p><button onclick="window.deleteMarker(${m.id})" class="w-full bg-red-500 text-white rounded py-2 text-sm font-bold">Remove Sign</button></div>`);
     });
   }, []);
 
@@ -116,42 +102,20 @@ export default function TgsEditor() {
     if (!mapRef.current || mapInstanceRef.current) return;
     const L = window.L;
     if (!L) return;
-
-    const map = L.map(mapRef.current, {
-      center: [-37.8136, 144.9631],
-      zoom: 16,
-      zoomControl: false,
-    });
-
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap',
-      subdomains: "abcd",
-      maxZoom: 20,
-    }).addTo(map);
-
-    L.control.zoom({ position: "topright" }).addTo(map);
-
+    const map = L.map(mapRef.current, { center: [-37.8136, 144.9631], zoom: 16, zoomControl: false });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { attribution: '&copy; OSM', subdomains: "abcd", maxZoom: 20 }).addTo(map);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
     map.on('click', (e: any) => {
       const sign = selectedSignRef.current;
-      const newMarker = {
-        id: Date.now(),
-        lat: e.latlng.lat,
-        lng: e.latlng.lng,
-        type: sign.id,
-        label: sign.label,
-        color: sign.color
-      };
-      
+      const newMarker = { id: Date.now(), lat: e.latlng.lat, lng: e.latlng.lng, type: sign.id, label: sign.label, color: sign.color };
       const currentMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
       const updated = [...currentMarkers, newMarker];
       setMarkers(updated);
       localStorage.setItem(`markers_${planId}`, JSON.stringify(updated));
       renderMarkers(updated);
     });
-
     mapInstanceRef.current = map;
     setMapReady(true);
-    
     const initialMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
     renderMarkers(initialMarkers);
   }, [planId, renderMarkers]);
@@ -171,8 +135,7 @@ export default function TgsEditor() {
     if (typeof window === "undefined") return;
     if (!document.querySelector('link[href*="leaflet"]')) {
       const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      link.rel = "stylesheet"; link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
     if (!window.L) {
@@ -180,133 +143,118 @@ export default function TgsEditor() {
       script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
       script.onload = initMap;
       document.head.appendChild(script);
-    } else {
-      initMap();
-    }
-    return () => {
-      if (mapInstanceRef.current) {
-        // DO NOT remove the map instance on every re-render, only on unmount
-        // This was likely the cause of the crash in the user's screenshot
-      }
-    };
+    } else { initMap(); }
   }, [initMap]);
 
-  // Handle cleanup on unmount only
-  useEffect(() => {
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!address.trim()) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ", Victoria, Australia")}`);
+      const data = await res.json();
+      if (data && data[0]) {
+        const { lat, lon } = data[0];
+        mapInstanceRef.current.setView([lat, lon], 18);
+        toast.success(`Found: ${data[0].display_name}`);
+      } else {
+        toast.error("Location not found");
       }
-    };
-  }, []);
-
-  const handleGenerate = () => {
-    setGenerating(true);
-    setTimeout(() => {
-      setGenerating(false);
-      toast.success("AI TGS Plan Generated!");
-      const demoMarkers = [
-        { id: Date.now() + 1, lat: -37.8136, lng: 144.9631, type: "T1-1", label: "Road Work Ahead", color: "#f97316" },
-        { id: Date.now() + 2, lat: -37.8150, lng: 144.9631, type: "T1-2", label: "Workers Ahead", color: "#f97316" }
-      ];
-      setMarkers(demoMarkers);
-      localStorage.setItem(`markers_${planId}`, JSON.stringify(demoMarkers));
-      renderMarkers(demoMarkers);
-      if (mapInstanceRef.current) mapInstanceRef.current.setView([-37.8143, 144.9631], 17);
-    }, 2000);
+    } catch (err) {
+      toast.error("Search failed");
+    } finally {
+      setSearching(false);
+    }
   };
 
   if (authLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 text-orange-400 animate-spin" /></div>;
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-background/80 backdrop-blur-md z-50">
-        <div className="flex items-center gap-4">
-          <Link href="/app"><Button variant="ghost" size="sm" className="text-gray-400 hover:text-white"><ArrowLeft className="w-4 h-4 mr-2" /> Back</Button></Link>
-          <div className="h-4 w-[1px] bg-white/10" />
-          <div className="flex flex-col">
-            <h1 className="text-sm font-bold text-white leading-tight">{projectName}</h1>
-            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Plan ID: {planId} • Interactive Mode</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={handleGenerate} disabled={generating} size="sm" className="bg-orange-500 hover:bg-orange-600 text-white font-semibold">
-            {generating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Brain className="w-4 h-4 mr-2" />} AI Generate
-          </Button>
-          <Button onClick={() => { setChecking(true); setTimeout(() => { setChecking(false); setShowPanel("compliance"); toast.success("Compliance Verified"); }, 1500); }} disabled={checking} variant="outline" size="sm" className="border-white/10 text-gray-300">
-            {checking ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Shield className="w-4 h-4 mr-2" />} Check Compliance
-          </Button>
-          <Button onClick={() => { setExporting(true); setTimeout(() => { setExporting(false); toast.success("PDF Exported"); }, 2000); }} disabled={exporting} variant="outline" size="sm" className="border-white/10 text-gray-300">
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />} Export PDF
-          </Button>
-        </div>
-      </header>
+    <div className="h-screen flex flex-col bg-background overflow-hidden relative">
+      {/* Address Search Bar - Top Floating */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md">
+        <form onSubmit={handleSearch} className="relative group">
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Search address in Victoria..."
+            className="w-full bg-black/80 backdrop-blur-xl border border-white/20 rounded-full py-3 px-12 text-white shadow-2xl focus:border-orange-500 outline-none transition-all"
+          />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          {searching && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-orange-400 animate-spin" />}
+        </form>
+      </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="w-64 border-r border-white/10 flex flex-col bg-background z-40">
-          <div className="p-4 border-b border-white/10">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Sign Palette</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {SIGN_TYPES.map(sign => (
-                <button
-                  key={sign.id}
-                  onClick={() => { setSelectedSign(sign); toast.info(`Selected: ${sign.label}. Click on map to place.`); }}
-                  className={`flex items-center gap-3 p-2 rounded-lg border transition-all text-left ${selectedSign.id === sign.id ? 'bg-orange-500/10 border-orange-500 text-orange-400' : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'}`}
-                >
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: sign.color }} />
-                  <span className="text-xs font-medium">{sign.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="p-4">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Instructions</h3>
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              1. Select a sign from the palette above.<br/>
-              2. Click anywhere on the map to place it.<br/>
-              3. Click a placed sign to delete it.
-            </p>
-          </div>
+      {/* Main Map Area */}
+      <div className="flex-1 relative">
+        <div ref={mapRef} className="absolute inset-0 z-0" />
+        
+        {/* Floating Controls */}
+        <div className="absolute bottom-6 left-6 z-50 flex flex-col gap-3">
+          <Button onClick={() => setShowPalette(!showPalette)} className={`w-14 h-14 rounded-full shadow-2xl ${showPalette ? 'bg-orange-500 text-white' : 'bg-black/80 text-orange-400 border border-orange-500/30'}`}>
+            {showPalette ? <X className="w-6 h-6" /> : <Layers className="w-6 h-6" />}
+          </Button>
+          <Button onClick={() => setShowRightPanel(!showRightPanel)} className={`w-14 h-14 rounded-full shadow-2xl ${showRightPanel ? 'bg-orange-500 text-white' : 'bg-black/80 text-orange-400 border border-orange-500/30'}`}>
+            {showRightPanel ? <X className="w-6 h-6" /> : <Settings className="w-6 h-6" />}
+          </Button>
         </div>
 
-        <div className="flex-1 relative">
-          <div ref={mapRef} className="absolute inset-0 z-0" />
-        </div>
+        {/* Floating Back Button */}
+        <Link href="/app">
+          <Button className="absolute top-4 left-4 z-50 w-10 h-10 rounded-full bg-black/80 text-white border border-white/10 p-0">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </Link>
+      </div>
 
-        <div className="w-80 border-l border-white/10 bg-background flex flex-col z-40">
-          <div className="flex border-b border-white/10">
-            {["settings", "compliance", "ai"].map(p => (
-              <button key={p} onClick={() => setShowPanel(p as any)} className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all ${showPanel === p ? 'border-orange-500 text-orange-400 bg-orange-500/5' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>{p}</button>
+      {/* Collapsible Sign Palette (Left) */}
+      {showPalette && (
+        <div className="absolute top-0 left-0 bottom-0 w-64 bg-black/90 backdrop-blur-xl border-r border-white/10 z-[70] flex flex-col p-4 pt-20 animate-in slide-in-from-left duration-300">
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Sign Palette</h3>
+          <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+            {SIGN_TYPES.map(sign => (
+              <button
+                key={sign.id}
+                onClick={() => { setSelectedSign(sign); if(window.innerWidth < 768) setShowPalette(false); toast.info(`Selected: ${sign.label}`); }}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${selectedSign.id === sign.id ? 'bg-orange-500/20 border-orange-500 text-orange-400' : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10'}`}
+              >
+                <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: sign.color }} />
+                <span className="text-sm font-bold leading-tight">{sign.label}</span>
+              </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {showPanel === "settings" && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2"><MapPin className="w-4 h-4 text-orange-400" /> Plan Summary</h3>
-                  <div className="space-y-3 p-3 rounded-lg bg-white/5 border border-white/10">
-                    <div className="flex justify-between items-center"><span className="text-[10px] text-gray-500 uppercase">Total Signs</span><span className="text-sm text-white font-bold">{markers.length}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-[10px] text-gray-500 uppercase">Status</span><span className="text-sm text-orange-400 font-bold">Drafting</span></div>
-                  </div>
-                </div>
-                <Button variant="destructive" size="sm" className="w-full text-xs" onClick={() => { if(confirm("Clear all signs?")) { setMarkers([]); localStorage.setItem(`markers_${planId}`, "[]"); renderMarkers([]); } }}><Trash2 className="w-3 h-3 mr-2" /> Clear All Signs</Button>
+        </div>
+      )}
+
+      {/* Collapsible Settings Panel (Right) */}
+      {showRightPanel && (
+        <div className="absolute top-0 right-0 bottom-0 w-72 bg-black/90 backdrop-blur-xl border-l border-white/10 z-[70] flex flex-col p-6 pt-20 animate-in slide-in-from-right duration-300">
+          <h3 className="text-sm font-bold text-white mb-6 flex items-center gap-2"><Settings className="w-5 h-5 text-orange-400" /> Plan Settings</h3>
+          <div className="space-y-6">
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
+              <label className="text-[10px] text-gray-500 uppercase font-bold mb-2 block">Project Name</label>
+              <p className="text-sm text-white font-bold">{projectName}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-center">
+                <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">Signs</p>
+                <p className="text-xl font-bold text-orange-400">{markers.length}</p>
               </div>
-            )}
-            {showPanel === "compliance" && (
-              <div className="space-y-4">
-                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5" /><div><p className="text-sm font-bold text-white">AS 1742.3 Check</p><p className="text-xs text-gray-400 mt-1">Minimum sign spacing requirements met.</p></div></div>
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-center">
+                <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">Status</p>
+                <p className="text-sm font-bold text-green-400 uppercase">Live</p>
               </div>
-            )}
-            {showPanel === "ai" && (
-              <div className="h-full flex flex-col">
-                <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-orange-400" /> AI Assistant</h3>
-                <div className="flex-1 rounded-lg border border-white/5 bg-black/20 overflow-hidden"><AIChatBox messages={[{role:"system", content:"Ask me anything about Victorian traffic standards."}]} loading={false} onSendMessage={() => {}} /></div>
-              </div>
-            )}
+            </div>
+            <Button onClick={() => { setExporting(true); setTimeout(() => { setExporting(false); toast.success("PDF Exported"); }, 2000); }} className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl">
+              {exporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Download className="w-5 h-5 mr-2" /> Export TGS</>}
+            </Button>
+            <Button variant="ghost" className="w-full text-red-400 hover:bg-red-500/10 h-12 rounded-xl" onClick={() => { if(confirm("Clear all signs?")) { setMarkers([]); localStorage.setItem(`markers_${planId}`, "[]"); renderMarkers([]); } }}>
+              <Trash2 className="w-4 h-4 mr-2" /> Clear All Signs
+            </Button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
