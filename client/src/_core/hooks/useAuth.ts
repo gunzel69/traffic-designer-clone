@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { trpc } from "@/lib/trpc";
 
 export interface User {
   id: string;
@@ -15,26 +14,21 @@ export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Check authentication status on mount
     const checkAuth = async () => {
       try {
         setLoading(true);
-        // In a real app, this would call an API endpoint to check auth status
-        // For now, we'll use a simple check based on localStorage or cookies
-        const token = localStorage.getItem("auth_token");
-        const userStr = localStorage.getItem("user");
-
-        if (token && userStr) {
-          try {
-            const userData = JSON.parse(userStr);
-            setUser(userData);
-            setIsAuthenticated(true);
-          } catch (e) {
-            setError("Failed to parse user data");
-          }
-        } else {
-          setIsAuthenticated(false);
-        }
+        // DEMO MODE: Auto-login with a guest user for immediate access
+        const guestUser: User = {
+          id: "guest-123",
+          email: "guest@tgsai.com.au",
+          name: "Guest User"
+        };
+        
+        setUser(guestUser);
+        setIsAuthenticated(true);
+        localStorage.setItem("user", JSON.stringify(guestUser));
+        localStorage.setItem("auth_token", "demo-token");
+        
       } catch (err) {
         setError(err instanceof Error ? err.message : "Auth check failed");
         setIsAuthenticated(false);
@@ -51,7 +45,6 @@ export function useAuth() {
     localStorage.removeItem("user");
     setUser(null);
     setIsAuthenticated(false);
-    // Redirect to login
     window.location.href = "/";
   };
 
