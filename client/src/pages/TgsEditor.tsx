@@ -28,6 +28,7 @@ import { AIChatBox, type Message } from "@/components/AIChatBox";
 declare global {
   interface Window {
     L: any;
+    deleteMarker: (id: number) => void;
   }
 }
 
@@ -60,10 +61,14 @@ export default function TgsEditor() {
   const [projectName, setProjectName] = useState("Loading Project...");
   const [markers, setMarkers] = useState<any[]>([]);
   const [selectedSign, setSelectedSign] = useState(SIGN_TYPES[0]);
-  const [showTramLayer, setShowTramLayer] = useState(false);
-  const [showPedestrianLayer, setShowPedestrianLayer] = useState(false);
+  const selectedSignRef = useRef(SIGN_TYPES[0]);
 
-  // Load project name from localStorage
+  // Keep ref in sync with state for map click handler
+  useEffect(() => {
+    selectedSignRef.current = selectedSign;
+  }, [selectedSign]);
+
+  // Load project name and markers
   useEffect(() => {
     const saved = localStorage.getItem("tgs_projects");
     if (saved) {
@@ -71,65 +76,13 @@ export default function TgsEditor() {
       const project = projects.find((p: any) => p.id === planId);
       if (project) setProjectName(project.name);
     }
-    
-    // Load markers for this project
     const savedMarkers = localStorage.getItem(`markers_${planId}`);
     if (savedMarkers) {
       setMarkers(JSON.parse(savedMarkers));
     }
   }, [planId]);
 
-  // Save markers to localStorage
-  const saveMarkers = (newMarkers: any[]) => {
-    setMarkers(newMarkers);
-    localStorage.setItem(`markers_${planId}`, JSON.stringify(newMarkers));
-  };
-
-  const initMap = useCallback(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-    const L = window.L;
-    if (!L) return;
-
-    const map = L.map(mapRef.current, {
-      center: [-37.8136, 144.9631],
-      zoom: 16,
-      zoomControl: false,
-    });
-
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap',
-      subdomains: "abcd",
-      maxZoom: 20,
-    }).addTo(map);
-
-    L.control.zoom({ position: "topright" }).addTo(map);
-
-    // Handle map clicks to place signs
-    map.on('click', (e: any) => {
-      const newMarker = {
-        id: Date.now(),
-        lat: e.latlng.lat,
-        lng: e.latlng.lng,
-        type: selectedSign.id,
-        label: selectedSign.label,
-        color: selectedSign.color
-      };
-      
-      const savedMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
-      const updated = [...savedMarkers, newMarker];
-      saveMarkers(updated);
-      renderMarkers(updated);
-    });
-
-    mapInstanceRef.current = map;
-    setMapReady(true);
-    
-    // Initial render of existing markers
-    const initialMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
-    renderMarkers(initialMarkers);
-  }, [planId, selectedSign]);
-
-  const renderMarkers = (markersToRender: any[]) => {
+  const renderMarkers = useCallback((markersToRender: any[]) => {
     const L = window.L;
     const map = mapInstanceRef.current;
     if (!L || !map) return;
@@ -157,18 +110,62 @@ export default function TgsEditor() {
         </div>
       `);
     });
-  };
+  }, []);
 
-  // Expose delete function to window for popup button
+  const initMap = useCallback(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    const L = window.L;
+    if (!L) return;
+
+    const map = L.map(mapRef.current, {
+      center: [-37.8136, 144.9631],
+      zoom: 16,
+      zoomControl: false,
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OpenStreetMap',
+      subdomains: "abcd",
+      maxZoom: 20,
+    }).addTo(map);
+
+    L.control.zoom({ position: "topright" }).addTo(map);
+
+    map.on('click', (e: any) => {
+      const sign = selectedSignRef.current;
+      const newMarker = {
+        id: Date.now(),
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+        type: sign.id,
+        label: sign.label,
+        color: sign.color
+      };
+      
+      const currentMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
+      const updated = [...currentMarkers, newMarker];
+      setMarkers(updated);
+      localStorage.setItem(`markers_${planId}`, JSON.stringify(updated));
+      renderMarkers(updated);
+    });
+
+    mapInstanceRef.current = map;
+    setMapReady(true);
+    
+    const initialMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
+    renderMarkers(initialMarkers);
+  }, [planId, renderMarkers]);
+
   useEffect(() => {
-    (window as any).deleteMarker = (id: number) => {
-      const saved = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
-      const updated = saved.filter((m: any) => m.id !== id);
-      saveMarkers(updated);
+    window.deleteMarker = (id: number) => {
+      const currentMarkers = JSON.parse(localStorage.getItem(`markers_${planId}`) || "[]");
+      const updated = currentMarkers.filter((m: any) => m.id !== id);
+      setMarkers(updated);
+      localStorage.setItem(`markers_${planId}`, JSON.stringify(updated));
       renderMarkers(updated);
       toast.success("Sign removed");
     };
-  }, [planId]);
+  }, [planId, renderMarkers]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -186,25 +183,37 @@ export default function TgsEditor() {
     } else {
       initMap();
     }
-    return () => { if (mapInstanceRef.current) mapInstanceRef.current.remove(); };
+    return () => {
+      if (mapInstanceRef.current) {
+        // DO NOT remove the map instance on every re-render, only on unmount
+        // This was likely the cause of the crash in the user's screenshot
+      }
+    };
   }, [initMap]);
+
+  // Handle cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
 
   const handleGenerate = () => {
     setGenerating(true);
     setTimeout(() => {
       setGenerating(false);
       toast.success("AI TGS Plan Generated!");
-      const L = window.L;
-      const map = mapInstanceRef.current;
-      if (L && map) {
-        const demoMarkers = [
-          { id: Date.now() + 1, lat: -37.8136, lng: 144.9631, type: "T1-1", label: "Road Work Ahead", color: "#f97316" },
-          { id: Date.now() + 2, lat: -37.8150, lng: 144.9631, type: "T1-2", label: "Workers Ahead", color: "#f97316" }
-        ];
-        saveMarkers(demoMarkers);
-        renderMarkers(demoMarkers);
-        map.setView([-37.8143, 144.9631], 17);
-      }
+      const demoMarkers = [
+        { id: Date.now() + 1, lat: -37.8136, lng: 144.9631, type: "T1-1", label: "Road Work Ahead", color: "#f97316" },
+        { id: Date.now() + 2, lat: -37.8150, lng: 144.9631, type: "T1-2", label: "Workers Ahead", color: "#f97316" }
+      ];
+      setMarkers(demoMarkers);
+      localStorage.setItem(`markers_${planId}`, JSON.stringify(demoMarkers));
+      renderMarkers(demoMarkers);
+      if (mapInstanceRef.current) mapInstanceRef.current.setView([-37.8143, 144.9631], 17);
     }, 2000);
   };
 
@@ -235,7 +244,6 @@ export default function TgsEditor() {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Toolbar with Sign Palette */}
         <div className="w-64 border-r border-white/10 flex flex-col bg-background z-40">
           <div className="p-4 border-b border-white/10">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Sign Palette</h3>
@@ -257,22 +265,15 @@ export default function TgsEditor() {
             <p className="text-[10px] text-gray-500 leading-relaxed">
               1. Select a sign from the palette above.<br/>
               2. Click anywhere on the map to place it.<br/>
-              3. Click a placed sign to delete it.<br/>
-              4. Use "AI Generate" for automatic placement.
+              3. Click a placed sign to delete it.
             </p>
           </div>
         </div>
 
-        {/* Map Area */}
         <div className="flex-1 relative">
           <div ref={mapRef} className="absolute inset-0 z-0" />
-          <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowTramLayer(!showTramLayer)} className={`shadow-lg border border-white/10 ${showTramLayer ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-background/80 text-gray-400'}`}><Train className="w-4 h-4 mr-2" /> Tram Layer</Button>
-            <Button variant="secondary" size="sm" onClick={() => setShowPedestrianLayer(!showPedestrianLayer)} className={`shadow-lg border border-white/10 ${showPedestrianLayer ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-background/80 text-gray-400'}`}><Footprints className="w-4 h-4 mr-2" /> Pedestrian Layer</Button>
-          </div>
         </div>
 
-        {/* Side Panel */}
         <div className="w-80 border-l border-white/10 bg-background flex flex-col z-40">
           <div className="flex border-b border-white/10">
             {["settings", "compliance", "ai"].map(p => (
@@ -289,13 +290,12 @@ export default function TgsEditor() {
                     <div className="flex justify-between items-center"><span className="text-[10px] text-gray-500 uppercase">Status</span><span className="text-sm text-orange-400 font-bold">Drafting</span></div>
                   </div>
                 </div>
-                <Button variant="destructive" size="sm" className="w-full text-xs" onClick={() => { if(confirm("Clear all signs?")) { saveMarkers([]); renderMarkers([]); } }}><Trash2 className="w-3 h-3 mr-2" /> Clear All Signs</Button>
+                <Button variant="destructive" size="sm" className="w-full text-xs" onClick={() => { if(confirm("Clear all signs?")) { setMarkers([]); localStorage.setItem(`markers_${planId}`, "[]"); renderMarkers([]); } }}><Trash2 className="w-3 h-3 mr-2" /> Clear All Signs</Button>
               </div>
             )}
             {showPanel === "compliance" && (
               <div className="space-y-4">
                 <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5" /><div><p className="text-sm font-bold text-white">AS 1742.3 Check</p><p className="text-xs text-gray-400 mt-1">Minimum sign spacing requirements met.</p></div></div>
-                <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-orange-400 mt-0.5" /><div><p className="text-sm font-bold text-white">Warning</p><p className="text-xs text-gray-400 mt-1">Check taper length for 40km/h zone.</p></div></div>
               </div>
             )}
             {showPanel === "ai" && (
