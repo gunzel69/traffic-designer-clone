@@ -150,21 +150,38 @@ export default function TgsEditor() {
     e.preventDefault();
     if (!address.trim()) return;
     setSearching(true);
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ", Victoria, Australia")}`);
-      const data = await res.json();
-      if (data && data[0]) {
-        const { lat, lon } = data[0];
-        mapInstanceRef.current.setView([lat, lon], 18);
-        toast.success(`Found: ${data[0].display_name}`);
-      } else {
-        toast.error("Location not found");
+    
+    // Try multiple search variants for better results in Victoria
+    const queries = [
+      address + ", Victoria, Australia",
+      address + ", VIC",
+      address + ", Melbourne",
+      address
+    ];
+
+    let found = false;
+    for (const query of queries) {
+      if (found) break;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
+          headers: { 'Accept-Language': 'en-AU' }
+        });
+        const data = await res.json();
+        if (data && data[0]) {
+          const { lat, lon } = data[0];
+          mapInstanceRef.current.setView([lat, lon], 18);
+          toast.success(`Found: ${data[0].display_name}`);
+          found = true;
+        }
+      } catch (err) {
+        console.error("Search attempt failed:", query, err);
       }
-    } catch (err) {
-      toast.error("Search failed");
-    } finally {
-      setSearching(false);
     }
+
+    if (!found) {
+      toast.error("Location not found. Try adding a suburb name.");
+    }
+    setSearching(false);
   };
 
   if (authLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 text-orange-400 animate-spin" /></div>;
